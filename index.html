@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>入札チェック</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1f6b4f">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#f3f5f2; --card:#ffffff; --fg:#1d2420; --muted:#5f6b64;
+  --line:#d6ddd8; --accent:#1f6b4f; --accent-ink:#ffffff; --done:#2e7d32; --todo:#b26a00; --danger:#b3261e;
+  --f-body:"Noto Sans JP","Noto Sans CJK JP",sans-serif;
+  --f-mono:"Roboto Mono",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:16px;line-height:1.5;padding:20px 16px 40px}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+h1{font-size:1.5rem;margin:0}
+.date{font-family:var(--f-mono);color:var(--muted);font-size:.85rem}
+.progress{font-size:.95rem;color:var(--muted)}
+.progress b{color:var(--fg);font-family:var(--f-mono)}
+ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+li{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.name{font-weight:700;font-size:1.05rem;min-width:0;flex:1 1 auto;display:flex;flex-direction:column;align-items:flex-start;gap:4px;word-break:break-all}
+.state{font-size:.78rem;white-space:nowrap;padding:2px 8px;border-radius:999px;border:1px solid currentColor;font-weight:400}
+.state.todo{color:var(--todo)}.state.done{color:var(--done)}
+.last{font-size:.8rem;color:var(--muted);font-family:var(--f-mono);font-weight:400}
+.open{display:block;text-align:center;text-decoration:none;background:var(--accent);color:var(--accent-ink);
+  font-weight:700;padding:12px;border-radius:8px;font-size:.9rem;flex:0 0 42%;max-width:180px}
+.edit-row{display:flex;gap:8px;flex-wrap:wrap}
+button{font:inherit;cursor:pointer;border-radius:6px}
+.btn{background:var(--card);border:1px solid var(--line);color:var(--fg);padding:8px 12px;font-size:.9rem}
+.btn:disabled{opacity:.35}
+.btn.del{color:var(--danger);border-color:var(--danger);margin-left:auto}
+.btn.del.armed{background:var(--danger);color:#fff}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap}
+.toolbar .btn{color:var(--muted)}
+form{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px}
+form h2{font-size:1rem;margin:0}
+label{display:flex;flex-direction:column;gap:4px;font-size:.85rem;color:var(--muted)}
+input{font:inherit;font-size:1rem;padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);width:100%}
+.err{color:var(--danger);font-size:.85rem;min-height:1em;margin:0}
+.tip{font-size:.85rem;color:var(--muted);border-top:1px solid var(--line);padding-top:14px;margin:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>入札チェック</h1>
+      <div class="date" id="today"></div>
+    </div>
+    <div class="progress" id="progress"></div>
+  </header>
+
+  <ul id="list"></ul>
+
+  <form id="addForm" hidden>
+    <h2>サイトを追加</h2>
+    <label>団体名<input id="fOrg" placeholder="例：河内長野市" autocomplete="off"></label>
+    <label>ボタンの表示名<input id="fName" placeholder="例：入札情報公開システム" autocomplete="off"></label>
+    <label>URL<input id="fUrl" type="url" placeholder="https://..." autocomplete="off" inputmode="url"></label>
+    <p class="err" id="fErr"></p>
+    <button class="btn primary" type="submit">追加する</button>
+  </form>
+
+  <div class="toolbar">
+    <button class="btn" id="editBtn" type="button">サイトの追加・編集</button>
+    <button class="btn" id="reset" type="button">今日の確認をリセット</button>
+    <button class="btn" id="restore" type="button" hidden>最初の一覧に戻す</button>
+  </div>
+
+  <p class="tip">ボタンを押すと各サイトが開きます。開いたサイトは「確認済」になり、日付が変わると「未確認」に戻ります。</p>
+</div>
+
+<script>
+const DEFAULT_SITES=[
+  {id:"osaka",org:"大阪府",name:"CALS/EC",url:"https://www.e-nyusatsu.pref.osaka.jp/CALS/Publish/EbController?Shori=KokokuInfo"},
+  {id:"osaka-mitsumori",org:"大阪府見積",name:"CALS/EC",url:"https://www.e-nyusatsu.pref.osaka.jp/CALS/Publish/EbController?Shori=SmallKokokuInfo"},
+  {id:"suido",org:"大阪広域水道企業団",name:"入札情報公開システム",url:"https://www.epi-cloud.fwd.ne.jp/koukai/do/KF001ShowAction?name1=06A0062006600600"},
+  {id:"jutaku",org:"大阪府住宅供給公社",name:"入札情報公開システム",url:"https://www.epi-cloud.fwd.ne.jp/koukai/do/KF001ShowAction?name1=06A0062006400600"},
+  {id:"sakai",org:"堺市",name:"入札情報公開システム",url:"https://sakai.efftis.jp/ebid01/PPI/Public/PPUBC00100"}
+];
+const KEY="nyusatsu-checked", SKEY="nyusatsu-sites";
+const pad=n=>String(n).padStart(2,"0");
+const dayKey=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const wd=["日","月","火","水","木","金","土"];
+function jget(k,def){try{const v=JSON.parse(localStorage.getItem(k));return v==null?def:v}catch(e){return def}}
+function jset(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+function getSites(){const s=jget(SKEY,null);return Array.isArray(s)?s:DEFAULT_SITES.slice()}
+function setSites(s){jset(SKEY,s)}
+let editing=false, armed=null;
+
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
+
+function render(){
+  const d=new Date(), today=dayKey(d), rec=jget(KEY,{}), sites=getSites();
+  document.getElementById("today").textContent=`${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())}（${wd[d.getDay()]}）`;
+  let done=0;
+  const ul=document.getElementById("list"); ul.innerHTML="";
+  sites.forEach((s,i)=>{
+    const t=rec[s.id]; const isDone=!!t&&dayKey(new Date(t))===today; if(isDone)done++;
+    const li=el("li"); const top=el("div","top"); const name=el("div","name",s.org);
+    name.appendChild(el("span","state "+(isDone?"done":"todo"),isDone?"確認済":"未確認"));
+    let last="前回: まだ開いていません";
+    if(t){const x=new Date(t);last=`前回: ${x.getMonth()+1}/${x.getDate()} ${pad(x.getHours())}:${pad(x.getMinutes())}`}
+    name.appendChild(el("span","last",last));
+    const a=el("a","open",s.name+" ›"); a.href=s.url; a.target="_blank"; a.rel="noopener";
+    a.addEventListener("click",()=>{const r=jget(KEY,{});r[s.id]=Date.now();jset(KEY,r);setTimeout(render,50)});
+    top.append(name,a); li.appendChild(top);
+    if(editing){
+      const row=el("div","edit-row");
+      const up=el("button","btn","↑ 上へ"); up.type="button"; up.disabled=i===0;
+      up.onclick=()=>{const s2=getSites();[s2[i-1],s2[i]]=[s2[i],s2[i-1]];setSites(s2);armed=null;render()};
+      const dn=el("button","btn","↓ 下へ"); dn.type="button"; dn.disabled=i===sites.length-1;
+      dn.onclick=()=>{const s2=getSites();[s2[i+1],s2[i]]=[s2[i],s2[i+1]];setSites(s2);armed=null;render()};
+      const del=el("button","btn del"+(armed===s.id?" armed":""),armed===s.id?"もう一度押すと削除":"削除"); del.type="button";
+      del.onclick=()=>{if(armed===s.id){setSites(getSites().filter(x=>x.id!==s.id));armed=null}else{armed=s.id}render()};
+      row.append(up,dn,del); li.appendChild(row);
+    }
+    ul.appendChild(li);
+  });
+  document.getElementById("progress").innerHTML=`今日の確認 <b>${done}/${sites.length}</b>`;
+  document.getElementById("addForm").hidden=!editing;
+  document.getElementById("restore").hidden=!editing;
+  document.getElementById("editBtn").textContent=editing?"編集を終わる":"サイトの追加・編集";
+}
+
+document.getElementById("editBtn").onclick=()=>{editing=!editing;armed=null;render()};
+document.getElementById("reset").onclick=()=>{jset(KEY,{});render()};
+let restoreArmed=false;
+document.getElementById("restore").onclick=e=>{
+  if(!restoreArmed){restoreArmed=true;e.target.textContent="もう一度押すと最初の一覧に戻します";return}
+  restoreArmed=false;e.target.textContent="最初の一覧に戻す";
+  try{localStorage.removeItem(SKEY)}catch(_){}
+  render();
+};
+document.getElementById("addForm").addEventListener("submit",e=>{
+  e.preventDefault();
+  const org=document.getElementById("fOrg").value.trim();
+  const name=document.getElementById("fName").value.trim()||"開く";
+  const url=document.getElementById("fUrl").value.trim();
+  const err=document.getElementById("fErr");
+  if(!org){err.textContent="団体名を入力してください。";return}
+  if(!/^https?:\/\/\S+$/.test(url)){err.textContent="URL は http:// または https:// で始まる形で入力してください。";return}
+  err.textContent="";
+  const s=getSites(); s.push({id:"u"+Date.now(),org,name,url}); setSites(s);
+  document.getElementById("fOrg").value="";document.getElementById("fName").value="";document.getElementById("fUrl").value="";
+  render();
+});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)render()});
+render();
+if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(()=>{})}
+</script>
+</body>
+</html>
